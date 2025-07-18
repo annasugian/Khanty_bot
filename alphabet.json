@@ -1,0 +1,147 @@
+[
+    {
+        "name": "Буква \"А\"",
+        "photo": "alfabeto/letras/А.png",
+        "sound": "alfabeto/audio/Буква_А.mp3"
+    },
+    {
+        "name": "Буква \"А с галочкой\"",
+        "photo": "alfabeto/letras/Ӑ.png",
+        "sound": "alfabeto/audio/Буква_Ӑ.mp3"
+    },
+    {
+        "name": "Буква \"Вэ\"",
+        "photo": "alfabeto/letras/В.png",
+        "sound": "alfabeto/audio/Буква_В.mp3"
+    },
+    {
+        "name": "Буква \"И\"",
+        "photo": "alfabeto/letras/И.png",
+        "sound": "alfabeto/audio/Буква_И.mp3"
+    },
+    {
+        "name": "Буква \"И краткое\"",
+        "photo": "alfabeto/letras/Й.png",
+        "sound": "alfabeto/audio/Буква_Й.mp3"
+    },
+    {
+        "name": "Буква \"Ка\"",
+        "photo": "alfabeto/letras/К.png",
+        "sound": "alfabeto/audio/Буква_К.mp3"
+    },
+    {
+        "name": "Буква \"Эл\"",
+        "photo": "alfabeto/letras/Л.png",
+        "sound": "alfabeto/audio/Буква_Л.mp3"
+    },
+    {
+        "name": "Буква \"Ле\"",
+        "photo": "alfabeto/letras/Љ.png",
+        "sound": "alfabeto/audio/Буква_Љ.mp3"
+    },
+    {
+        "name": "Буква \"Эл с хвостиком\"",
+        "photo": "alfabeto/letras/Ԓ.png",
+        "sound": "alfabeto/audio/Буква_Ԓ.mp3"
+    },
+    {
+        "name": "Буква \"Эм\"",
+        "photo": "alfabeto/letras/М.png",
+        "sound": "alfabeto/audio/Буква_М.mp3"
+    },
+    {
+        "name": "Буква \"Эн\"",
+        "photo": "alfabeto/letras/Н.png",
+        "sound": "alfabeto/audio/Буква_Н.mp3"
+    },
+    {
+        "name": "Буква \"Не\"",
+        "photo": "alfabeto/letras/Њ.png",
+        "sound": "alfabeto/audio/Буква_Њ.mp3"
+    },
+    {
+        "name": "Буква \"Эн с хвостиком\"",
+        "photo": "alfabeto/letras/ӈ.png",
+        "sound": "alfabeto/audio/Буква_ӈ.mp3"
+    },
+    {
+        "name": "Буква \"О\"",
+        "photo": "alfabeto/letras/О.png",
+        "sound": "alfabeto/audio/Буква_О.mp3"
+    },
+    {
+        "name": "Буква \"О с пояском\"",
+        "photo": "alfabeto/letras/Ө.png",
+        "sound": "alfabeto/audio/Буква_Ө.mp3"
+    },
+    {
+        "name": "Буква \"Пэ\"",
+        "photo": "alfabeto/letras/П.png",
+        "sound": "alfabeto/audio/Буква_П.mp3"
+    },
+    {
+        "name": "Буква \"Эр\"",
+        "photo": "alfabeto/letras/Р.png",
+        "sound": "alfabeto/audio/Буква_Р.mp3"
+    },
+    {
+        "name": "Буква \"Эс\"",
+        "photo": "alfabeto/letras/С.png",
+        "sound": "alfabeto/audio/Буква_С.mp3"
+    },
+    {
+        "name": "Буква \"Тэ\"",
+        "photo": "alfabeto/letras/Т.png",
+        "sound": "alfabeto/audio/Буква_Т.mp3"
+    },
+    {
+        "name": "Буква \"Те\"",
+        "photo": "alfabeto/letras/ТЬ.png",
+        "sound": "alfabeto/audio/Буква_ТЬ.mp3"
+    },
+    {
+        "name": "Буква \"У\"",
+        "photo": "alfabeto/letras/У.png",
+        "sound": "alfabeto/audio/Буква_У.mp3"
+    },
+    {
+        "name": "Буква \"У с галочкой\"",
+        "photo": "alfabeto/letras/Ў.png",
+        "sound": "alfabeto/audio/Буква_Ў.mp3"
+    },
+    {
+        "name": "Буква \"Ха\"",
+        "photo": "alfabeto/letras/Х.png",
+        "sound": "alfabeto/audio/Буква_Х.mp3"
+    },
+    {
+        "name": "Буква \"Ша\"",
+        "photo": "alfabeto/letras/Ш.png",
+        "sound": "alfabeto/audio/Буква_Ш.mp3"
+    },
+    {
+        "name": "Буква \"Ща\"",
+        "photo": "alfabeto/letras/Щ.png",
+        "sound": "alfabeto/audio/Буква_Щ.mp3"
+    },
+    {
+        "name": "Буква \"Ы\"",
+        "photo": "alfabeto/letras/ы.png",
+        "sound": "alfabeto/audio/Буква_Ы.mp3"
+    },
+    {
+        "name": "Буква \"Э\"",
+        "photo": "alfabeto/letras/Э.png",
+        "sound": "alfabeto/audio/Буква_Э.mp3"
+    },
+    {
+        "name": "Буква \"Э оборотное\"",
+        "photo": "alfabeto/letras/Є.png",
+        "sound": "alfabeto/audio/Буква_Є.mp3"
+    },
+    {
+        "name": "Буква \"Э перевернутое\"",
+        "photo": "alfabeto/letras/ә.png",
+        "sound": "alfabeto/audio/Буква_ә.mp3"
+    }
+]
