@@ -560,7 +560,7 @@ def build_menu(buttons: List[Tuple[str, str]],
 
 @dp.callback_query(F.data.startswith("show_culture_"))
 async def show_culture_fact(callback: types.CallbackQuery, state: FSMContext):
-    """Показывает  факт для сказки с возвратом к исходной версии"""
+    """Показывает культурный факт для сказки с возвратом к исходной версии"""
     try:
         story_id = int(callback.data.split("_")[-1])
         
@@ -571,7 +571,7 @@ async def show_culture_fact(callback: types.CallbackQuery, state: FSMContext):
         culture_fact = next((cf for cf in culture_data if cf.get("id") == story_id and cf.get("fact")), None)
         
         if not culture_fact:
-            await callback.answer("⚠️  факт не найден", show_alert=True)
+            await callback.answer("⚠️ Культурный факт не найден", show_alert=True)
             return
         
         # Формируем сообщение
@@ -2188,7 +2188,7 @@ def get_story_images(story: dict) -> list:
 
 
 @dp.callback_query(F.data.startswith(CALLBACK_SHOW_ILLUSTRATIONS))
-async def handle_show_illustrations(callback: CallbackQuery):
+async def handle_show_illustrations(callback: CallbackQuery, state: FSMContext):
     """Показ иллюстраций к сказке"""
     try:
         story_id = int(callback.data.replace(CALLBACK_SHOW_ILLUSTRATIONS, ""))
@@ -2199,16 +2199,16 @@ async def handle_show_illustrations(callback: CallbackQuery):
             await callback.answer("❌ Иллюстрации не найдены", show_alert=True)
             return
 
-        await send_illustration_page(callback.message, story, images, 0)
+        await send_illustration_page(callback.message, story, images, 0, state)
         await callback.answer()
 
     except Exception as e:
-        print(f"[ERROR] Ошибка в handle_show_illustrations: {e}")
+        logger.error(f"Ошибка в handle_show_illustrations: {e}")
         await callback.answer("⚠️ Ошибка при загрузке иллюстраций", show_alert=True)
 
 
-async def send_illustration_page(message: Message, story: dict, images: list, page: int):
-    """Отправляет одну иллюстрацию с навигацией (оптимизированная версия)"""
+async def send_illustration_page(message: Message, story: dict, images: list, page: int, state: FSMContext):
+    """Отправляет одну иллюстрацию с навигацией"""
     try:
         if page < 0 or page >= len(images):
             raise IndexError("Некорректный номер страницы")
@@ -2216,10 +2216,14 @@ async def send_illustration_page(message: Message, story: dict, images: list, pa
         image_path = images[page]
         caption = f"🖼️ Иллюстрация {page+1}/{len(images)}\n<b>{story['rus_title']}</b>"
 
-        # Получаем сжатое изображение из кэша
+        # Получаем сжатое изображение
         if str(image_path) not in image_cache:
-            logger.warning(f"Изображение {image_path} не найдено в кэше, загружаем...")
             image_cache[str(image_path)] = await compress_image(image_path)
+
+        # Получаем сохраненный язык
+        user_data = await state.get_data()
+        lang = user_data.get('last_lang', 'ru')
+        back_callback = f"{CALLBACK_LANGUAGE_RU}{story['id']}" if lang == 'ru' else f"{CALLBACK_LANGUAGE_KH}{story['id']}"
 
         # Создаем клавиатуру
         builder = InlineKeyboardBuilder()
@@ -2229,13 +2233,13 @@ async def send_illustration_page(message: Message, story: dict, images: list, pa
         if page < len(images) - 1:
             builder.button(text="Вперед ▶️", callback_data=f"illustr_next_{story['id']}_{page}")
             
-        builder.button(text="🔙 Назад к сказке", callback_data=f"{CALLBACK_SHOW_STORY}{story['id']}")
+        builder.button(text="🔙 Назад к сказке", callback_data=back_callback)
         builder.adjust(2)
         
         # Отправляем фото
         await message.answer_photo(
             types.BufferedInputFile(
-                image_cache[str(image_path)], 
+                image_cache[str(image_path)],
                 filename=f"illustration_{page}.jpg"
             ),
             caption=caption,
@@ -2243,12 +2247,12 @@ async def send_illustration_page(message: Message, story: dict, images: list, pa
         )
 
     except Exception as e:
-        logger.error(f"Ошибка при отправке иллюстрации: {str(e)}")
+        logger.error(f"Ошибка при отправке иллюстрации: {e}")
         raise
 
 
 @dp.callback_query(F.data.startswith("illustr_prev_"))
-async def handle_illustr_prev(callback: CallbackQuery):
+async def handle_illustr_prev(callback: CallbackQuery, state: FSMContext):
     """Переход к предыдущей иллюстрации"""
     try:
         parts = callback.data.split('_')
@@ -2259,16 +2263,16 @@ async def handle_illustr_prev(callback: CallbackQuery):
         images = get_story_images(story)
 
         await callback.message.delete()
-        await send_illustration_page(callback.message, story, images, current_page - 1)
+        await send_illustration_page(callback.message, story, images, current_page - 1, state)
         await callback.answer()
 
     except Exception as e:
-        print(f"[ERROR] Ошибка в handle_illustr_prev: {e}")
+        logger.error(f"Ошибка в handle_illustr_prev: {e}")
         await callback.answer("⚠️ Ошибка при переходе", show_alert=True)
 
 
 @dp.callback_query(F.data.startswith("illustr_next_"))
-async def handle_illustr_next(callback: CallbackQuery):
+async def handle_illustr_next(callback: CallbackQuery, state: FSMContext):
     """Переход к следующей иллюстрации"""
     try:
         parts = callback.data.split('_')
@@ -2279,14 +2283,12 @@ async def handle_illustr_next(callback: CallbackQuery):
         images = get_story_images(story)
 
         await callback.message.delete()
-        await send_illustration_page(callback.message, story, images, current_page + 1)
+        await send_illustration_page(callback.message, story, images, current_page + 1, state)
         await callback.answer()
 
     except Exception as e:
-        print(f"[ERROR] Ошибка в handle_illustr_next: {e}")
+        logger.error(f"Ошибка в handle_illustr_next: {e}")
         await callback.answer("⚠️ Ошибка при переходе", show_alert=True)
-
-
 
 # --- Обработчики навигации ---
 @dp.callback_query(F.data == CALLBACK_BACK_TO_MAIN)
