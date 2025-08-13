@@ -560,7 +560,7 @@ def build_menu(buttons: List[Tuple[str, str]],
 
 @dp.callback_query(F.data.startswith("show_culture_"))
 async def show_culture_fact(callback: types.CallbackQuery, state: FSMContext):
-    """Показывает культурный факт для сказки с возвратом к исходной версии"""
+    """Показывает  факт для сказки с возвратом к исходной версии"""
     try:
         story_id = int(callback.data.split("_")[-1])
         
@@ -571,11 +571,11 @@ async def show_culture_fact(callback: types.CallbackQuery, state: FSMContext):
         culture_fact = next((cf for cf in culture_data if cf.get("id") == story_id and cf.get("fact")), None)
         
         if not culture_fact:
-            await callback.answer("⚠️ Культурный факт не найден", show_alert=True)
+            await callback.answer("⚠️  факт не найден", show_alert=True)
             return
         
         # Формируем сообщение
-        caption = f"🌿 <b>Культурный факт</b>\n\n{culture_fact['fact']}"
+        caption = f"🌿 <b>Культура</b>\n\n{culture_fact['fact']}"
         
         if culture_fact.get("source"):
             caption += f"\n\n🔗 Источник: {culture_fact['source']}"
@@ -1156,7 +1156,7 @@ async def story_menu_kb(story_id: int) -> InlineKeyboardMarkup:
         if any(t["fairytale_id"] == story_id for t in tests_data["tests"]):
             buttons.append(("📝 Пройти тест", f"start_test_{story_id}"))
         if has_culture:
-            buttons.append(("🌿 Культурный факт", f"show_culture_{story_id}"))
+            buttons.append(("🌿 Культура", f"show_culture_{story_id}"))
         
         
         return build_menu(buttons, ("🔙 Назад", CALLBACK_BACK_TO_TALES), columns=2)
