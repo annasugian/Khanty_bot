@@ -1,0 +1,60 @@
+{
+    "algorithm": {
+        "command": null,
+        "id": 8,
+        "name": "fastText Skipgram",
+        "tool": "Gensim",
+        "url": "https://github.com/RaRe-Technologies/gensim",
+        "version": "3.8"
+    },
+    "contents": [
+        {
+            "filename": "model.model",
+            "format": "data"
+        },
+        {
+            "filename": "model.model.vectors.npy",
+            "format": "data"
+        },
+        {
+            "filename": "model.model.vectors_ngrams.npy",
+            "format": "data"
+        },
+        {
+            "filename": "model.model.vectors_vocab.npy",
+            "format": "data"
+        },
+        {
+            "filename": "meta.json",
+            "format": "json"
+        }
+    ],
+    "corpus": [
+        {
+            "NER": true,
+            "case preserved": false,
+            "description": "GeoWAC: Population-balanced Russian Gigaword Corpus",
+            "id": 121,
+            "language": "rus",
+            "lemmatized": true,
+            "public": true,
+            "stop words removal": "punctuation",
+            "tagger": "UDPipe 1.2",
+            "tagset": null,
+            "tokens": 2107697501,
+            "url": "https://www.earthlings.io/download_geowac.html"
+        }
+    ],
+    "creators": [
+        {
+            "email": "andreku@ifi.uio.no",
+            "name": "Andrey Kutuzov"
+        }
+    ],
+    "dimensions": 300,
+    "handle": "http://vectors.nlpl.eu/repository/20/213.zip",
+    "id": 213,
+    "iterations": 4,
+    "vocabulary size": 154923,
+    "window": 5
+}
