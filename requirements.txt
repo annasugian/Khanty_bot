@@ -3,3 +3,6 @@ aiohttp==3.9.5
 python-dotenv==1.0.1
 nest-asyncio==1.6.0
 pillow==11.3.0
+natasha==1.6.0
+scikit-learn==1.7.1
+setuptools==80.9.0
