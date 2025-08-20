@@ -46,7 +46,16 @@ from natasha import Segmenter, MorphVocab, NewsMorphTagger, NewsEmbedding, Doc
 from typing import Dict, List, Set
 import re
 from functools import lru_cache
-
+from collections import defaultdict
+from aiogram import F, types
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+import torch
+import torch.nn as nn
+import pickle
+from gensim.models import KeyedVectors
+from functools import lru_cache
+import json
+from collections import defaultdict
 
 
 
@@ -64,6 +73,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+themes_dict: Dict[str, List[Tuple[str, str]]] = {}
 
 # --- Явная загрузка .env ---
 env_path = Path(__file__).parent / '.env'
@@ -102,6 +113,7 @@ CALLBACK_CONSONANTS_DESCRIPTION = "consonants_desc"
 CALLBACK_SHOW_ILLUSTRATIONS = "show_illustrations_"
 CALLBACK_PROGRESS = "show_progress"
 CALLBACK_SHOW_CULTURE = "show_culture_"
+
 
 
 
@@ -394,6 +406,295 @@ logger.info(f"Загружено культурных фактов: {len(culture
 
 
 
+
+
+
+
+
+
+
+
+# 1. Определение архитектуры модели (должно совпадать с обучением)
+class MultiLabelClassifier(nn.Module):
+    def __init__(self, input_size, output_size):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Linear(input_size, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, output_size),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.layers(x)
+
+# 2. Инициализация устройства
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Используется устройство: {device}")
+
+# 3. Пути к файлам 
+MODEL_DIR = "models"  # Папка с моделями
+PATHS = {
+    'word2vec': f"{MODEL_DIR}/word_embeddings.model",
+    'pytorch': f"{MODEL_DIR}/multilabel_classifier.pth",
+    'mlb': f"{MODEL_DIR}/mlb.pkl"
+}
+
+
+# 4. Загрузка компонентов
+def load_models():
+    """Загрузка всех необходимых компонентов модели"""
+    try:
+        # Загружаем Word2Vec модель
+        try:
+            model_emb = KeyedVectors.load(PATHS['word2vec'])
+            print("✔ Word2Vec модель загружена успешно!")
+            print(f"Размерность эмбеддингов: {model_emb.vector_size}")
+        except Exception as e:
+            print(f"❌ Ошибка загрузки Word2Vec: {e}")
+            raise
+
+        # Загружаем MultiLabelBinarizer
+        try:
+            with open(PATHS['mlb'], 'rb') as f:
+                mlb = pickle.load(f)
+            print("✔ MultiLabelBinarizer загружен успешно!")
+            print(f"Классы: {mlb.classes_}")
+        except Exception as e:
+            print(f"❌ Ошибка загрузки mlb.pkl: {e}")
+            raise
+
+        # Инициализируем и загружаем PyTorch модель
+        try:
+            model = MultiLabelClassifier(model_emb.vector_size, len(mlb.classes_)).to(device)
+            model.load_state_dict(torch.load(PATHS['pytorch'], map_location=device))
+            model.eval()
+            print("✔ PyTorch модель загружена успешно!")
+        except Exception as e:
+            print(f"❌ Ошибка загрузки модели PyTorch: {e}")
+            raise
+
+        return model_emb, model, mlb
+
+    except Exception as e:
+        print(f"⚠️ Критическая ошибка при загрузке моделей: {e}")
+        raise
+
+# 5. Загружаем модели и создаем классификатор
+try:
+    model_emb, model, mlb = load_models()
+    print("Все модели успешно загружены!")
+    
+    # Классификатор тем на основе нейросети
+    class NeuralThemeClassifier:
+        def __init__(self, word2vec_model, pytorch_model, mlb):
+            self.word2vec = word2vec_model
+            self.model = pytorch_model
+            self.mlb = mlb
+
+        @lru_cache(maxsize=5000)
+        def predict_themes(self, word: str) -> List[str]:
+            """Определение тем слова с помощью нейросети, возвращает список тем"""
+            try:
+                vec = torch.FloatTensor(np.copy(self.word2vec[word])).unsqueeze(0).to(device)
+                with torch.no_grad():
+                    out = self.model(vec)
+                    out_np = (out.cpu().numpy() > 0.5).astype(int)
+
+                labels = self.mlb.inverse_transform(out_np)[0]
+                if labels:
+                    return [label.capitalize() for label in labels]
+                else:
+                    return ["Общее"]
+            except KeyError:
+                return ["Общее"]  # Если слова нет в word2vec
+            except Exception as e:
+                print(f"Ошибка предсказания: {e}")
+                return ["Общее"]
+
+    # Создаем экземпляр классификатора
+    theme_classifier = NeuralThemeClassifier(model_emb, model, mlb)
+    print("Нейросетевой классификатор тем инициализирован!")
+
+except Exception as e:
+    print(f"❌ Ошибка загрузки нейросетевых моделей: {e}")
+    # Создаем заглушку для классификатора
+    class DummyThemeClassifier:
+        @lru_cache(maxsize=5000)
+        def predict_themes(self, word: str) -> List[str]:
+            return ["Общее"]
+    
+    theme_classifier = DummyThemeClassifier()
+    print("⚠️ Используется заглушечный классификатор тем")
+
+def load_manual_dictionary():
+    try:
+        with open('diccionario.json', 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        manual_dict = {}
+        
+        
+        for item in data:
+            original_word = item['word']
+            labels = item['labels']
+            
+            # Обрабатываем слова с запятыми - создаем отдельные записи для каждого варианта
+            if ',' in original_word:
+                variants = [v.strip() for v in original_word.split(',')]
+                for variant in variants:
+                    # Очищаем каждый вариант от знаков препинания
+                    clean_variant = variant.lower().strip()
+                    clean_variant = clean_variant.replace('?', '').replace('!', '').replace('.', '').strip()
+                    
+                    if clean_variant and clean_variant not in manual_dict:
+                        manual_dict[clean_variant] = labels
+            else:
+                # Обрабатываем одиночные слова
+                clean_word = original_word.lower().strip()
+                clean_word = clean_word.replace('?', '').replace('!', '').replace('.', '').strip()
+                
+                if clean_word and clean_word not in manual_dict:
+                    manual_dict[clean_word] = labels
+        
+        print(f"Ручной словарь загружен: {len(manual_dict)} отдельных слов")
+        return manual_dict
+        
+    except Exception as e:
+        print(f"❌ Ошибка загрузки ручного словаря: {e}")
+        return {}
+    
+manual_dictionary = load_manual_dictionary()
+
+class HybridThemeClassifier:
+    def __init__(self, manual_dict, neural_classifier):
+        self.manual_dict = manual_dict
+        self.neural = neural_classifier
+
+    def clean_input_word(self, word):
+        """Очищает входное слово для сравнения"""
+        if not word:
+            return ""
+        cleaned = word.lower().strip()
+        cleaned = cleaned.replace('?', '').replace('!', '').replace('.', '').replace(',', '').strip()
+        return cleaned
+
+    def smart_dict_search(self, word: str) -> Optional[List[str]]:
+        """
+        Умный поиск слова в ручном словаре по принципу Ctrl+F
+        """
+        clean_word = self.clean_input_word(word)
+        
+        if not clean_word:
+            return None
+        
+        # 1. Точное совпадение
+        if clean_word in self.manual_dict:
+            return self.manual_dict[clean_word]
+        
+        # 2. Поиск по всем вариантам (как Ctrl+F)
+        clean_word_lower = clean_word.lower()
+        
+        for dict_word, labels in self.manual_dict.items():
+            dict_word_lower = dict_word.lower()
+            
+            # Различные варианты совпадений
+            if (clean_word_lower == dict_word_lower or
+                clean_word_lower in dict_word_lower or
+                dict_word_lower in clean_word_lower):
+                return labels
+        
+        return None
+
+    @lru_cache(maxsize=5000)
+    def predict_themes(self, word: str) -> List[str]:
+        """Определение тем слова с умным поиском"""
+        try:
+            # Используем умный поиск
+            labels = self.smart_dict_search(word)
+            
+            if labels:
+                return labels
+            
+            # Если не найдено в ручном словаре, используем нейросеть
+            return self.neural.predict_themes(word)
+            
+        except Exception as e:
+            print(f"Ошибка в гибридном классификаторе для слова '{word}': {e}")
+            return ["Общее"]
+        
+# Создаем гибридный классификатор
+hybrid_classifier = HybridThemeClassifier(manual_dictionary, theme_classifier)
+print("Гибридный классификатор инициализирован!")
+
+
+
+def are_words_similar(self, word1: str, word2: str) -> bool:
+    """
+    Проверяет, похожи ли слова (для обработки опечаток и вариантов)
+    """
+    # Простая проверка на схожесть - можно улучшить
+    if len(word1) < 3 or len(word2) < 3:
+        return False
+    
+    # Общие буквы в начале слова
+    if word1[:3] == word2[:3]:
+        return True
+    
+    # Общие буквы в конце слова  
+    if word1[-3:] == word2[-3:]:
+        return True
+    
+    return False
+
+
+def smart_dict_search(self, word: str) -> Optional[List[str]]:
+    """
+    Умный поиск слова в ручном словаре по принципу Ctrl+F
+    Ищет точные совпадения, частичные совпадения и варианты
+    """
+    clean_word = self.clean_input_word(word)
+    
+    if not clean_word:
+        return None
+    
+    # 1. Точное совпадение (основной случай)
+    if clean_word in self.manual_dict:
+        return self.manual_dict[clean_word]
+    
+    # 2. Поиск по всем вариантам (как Ctrl+F)
+    # Приводим оба слова к нижнему регистру для сравнения
+    clean_word_lower = clean_word.lower()
+    
+    for dict_word, labels in self.manual_dict.items():
+        dict_word_lower = dict_word.lower()
+        
+        # Проверяем различные варианты совпадений
+        if (clean_word_lower == dict_word_lower or  # точное совпадение
+            clean_word_lower in dict_word_lower or   # часть слова
+            dict_word_lower in clean_word_lower or   # слово является частью
+            clean_word_lower.replace(' ', '') == dict_word_lower.replace(' ', '') or  # без пробелов
+            self.are_words_similar(clean_word_lower, dict_word_lower)):  # похожие слова
+            
+            print(f"DEBUG: Найдено совпадение '{clean_word}' ~ '{dict_word}' -> {labels}")
+            return labels
+    
+    return None
+
+
+
+
+
+
+
+
+
+
+
+
+
 # --- Инициализация бота и диспетчера ---
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
@@ -402,12 +703,6 @@ dp = Dispatcher()
 db = Database()
 
 
-
-#Natasha
-segmenter = Segmenter()
-morph_vocab = MorphVocab()
-emb = NewsEmbedding()
-morph_tagger = NewsMorphTagger(emb)
 
 
 
@@ -616,383 +911,6 @@ async def show_culture_fact(callback: types.CallbackQuery, state: FSMContext):
 
 
 
-
-# Функция для автоматического определения темы слова
-@lru_cache(maxsize=5000)
-def get_word_lemma(word: str) -> str:
-    """Получить нормальную форму слова с кэшированием"""
-    try:
-        doc = Doc(word)
-        doc.segment(segmenter)
-        doc.tag_morph(morph_tagger)
-        for token in doc.tokens:
-            token.lemmatize(morph_vocab)
-            return token.lemma.lower()
-    except Exception:
-        pass
-    return word.lower().strip()
-
-class ThemeClassifier:
-    def __init__(self):
-        self.theme_data = self._init_theme_data()
-        self.compiled_patterns = self._compile_patterns()
-        
-    def _init_theme_data(self) -> Dict[str, Dict[str, Set[str]]]:
-        return {
-            # Животные
-            'животные': {
-                'exact': {
-                    # Дикие животные
-                    'медведь', 'лось', 'волк', 'лиса', 'заяц', 'росомаха', 'олень',
-                    'выдра', 'белка', 'соболь', 'барсук', 'горностай', 'рысь', 'кот', 'дикий олень (букв.: лесной бык мужчина)',
-                    # Птицы
-                    'глухарь', 'тетерев', 'сова', 'ворон', 'дятел', 'сорока',
-                    # Рыбы
-                    'щука', 'налим', 'окунь', 'язь', 'плотва', 'карась',
-                    # Насекомые
-                    'комар', 'муха', 'пчела', 'бабочка', 'жук', 'мышонок (букв.: маленький мышонок сыночек)'
-                },
-                'patterns': [
-                    r'животн', r'звер', r'птиц', r'рыб', 
-                    r'насеком', r'млекопит'
-                ]
-            },
-            
-            # Природа
-            'природа': {
-                'exact': {
-                    # Ландшафты
-                    'тайга', 'тундра', 'степь', 'луг', 'поляна', 'равнина',
-                    # Водоемы
-                    'река', 'озеро', 'море', 'ручей', 'болото', 'родник',
-                    # Горы
-                    'гора', 'холм', 'сопка', 'утес', 'скала', 'пещера',
-                    # Растительность
-                    'дерево', 'береза', 'сосна', 'кедр', 'ель', 'пихта',
-                    'кустарник', 'трава', 'мох', 'лишайник', 'папоротник',
-                    # Ягоды и грибы
-                    'брусника', 'черника', 'морошка', 'голубика', 'подберезовик',
-                    # Погодные явления
-                    'ветер', 'дождь', 'снег', 'град', 'туман', 'иней',
-                    # Небесные тела
-                    'солнце', 'луна', 'звезда', 'облако', 'радуга', 'закат', 'мороз'
-                },
-                'patterns': [
-                    r'лес', r'вод', r'реч', r'озер', r'гор', 
-                    r'растен', r'дерев', r'погод', r'неб', r'ясен'
-                ]
-            },
-            
-            # Люди
-            'люди': {
-                'exact': {
-                    'мужчина', 'женщина', 'ребенок', 'старик', 'старуха',
-                    'охотник', 'рыбак', 'мастер', 'шаман', 'знахарь',
-                    'воин', 'вождь', 'путник', 'сосед', 'гость',
-                    'учитель', 'ученик', 'родственник', 'незнакомец', 'хозяин', 'друг'
-                },
-                'patterns': [
-                    r'человек', r'мужчин', r'женщин', r'ребен', 
-                    r'стари', r'охот', r'рыбак', r'шаман'
-                ]
-            },
-            
-            # Семья и род
-            'семья': {
-                'exact': {
-                    'семья', 'род', 'племя', 'родня', 'предок',
-                    'отец', 'мать', 'сын', 'дочь', 'брат', 'сестра',
-                    'дед', 'бабка', 'внук', 'внучка', 'дядя', 'тетя',
-                    'свекор', 'тесть', 'зять', 'невестка', 'сноха'
-                },
-                'patterns': [
-                    r'семь', r'род', r'плем', r'отц', 
-                    r'матер', r'брат', r'сестр', r'предк'
-                ]
-            },
-            
-            # Части тела
-            'части тела': {
-                'exact': {
-                    'голова', 'лицо', 'глаз', 'нос', 'рот', 'ухо',
-                    'волосы', 'шея', 'плечо', 'рука', 'палец', 'нога',
-                    'грудь', 'спина', 'живот', 'сердце', 'печень',
-                    'кость', 'кровь', 'кожа', 'зуб', 'язык'
-                },
-                'patterns': [
-                    r'голов', r'лиц', r'глаз', 
-                    r'рот', r'ух', r'рук', r'ног'
-                ]
-            },
-            
-            # Числа и количество
-            'числа': {
-                'exact': {
-                    # Основные числа
-                    'один', 'два', 'три', 'четыре', 'пять',
-                    'шесть', 'семь', 'восемь', 'девять', 'десять',
-                    # Десятки
-                    'двадцать', 'тридцать', 'сорок', 'пятьдесят',
-                    # Большие числа
-                    'сто', 'двести', 'пятьсот', 'тысяча',
-                    # Дробные
-                    'половина', 'треть', 'четверть',
-                    # Количественные
-                    'много', 'мало', 'несколько', 'пара', 'десяток'
-                },
-                'patterns': [
-                    r'числ', r'колич', r'один', r'два', 
-                    r'три', r'четыр', r'пят', r'десят'
-                ]
-            },
-            
-            # Время
-            'время': {
-                'exact': {
-                    # Времена года
-                    'зима', 'весна', 'лето', 'осень',
-                    # Месяцы
-                    'январь', 'февраль', 'март', 'апрель',
-                    # Части суток
-                    'утро', 'день', 'вечер', 'ночь',
-                    # Понятия
-                    'год', 'месяц', 'неделя', 'час', 'минута',
-                    'вчера', 'сегодня', 'завтра', 'сейчас'
-                },
-                'patterns': [
-                    r'врем', r'год', r'месяц', r'недел',
-                    r'час', r'утр', r'день', r'вечер'
-                ]
-            },
-            
-            # Действия
-            'действия': {
-                'exact': {
-                    # Базовые
-                    'идти', 'бежать', 'стоять', 'сидеть', 'лежать',
-                    # Работа
-                    'делать', 'работать', 'строить', 'копать', 'рубить',
-                    # Взаимодействие
-                    'говорить', 'слушать', 'видеть', 'смотреть', 'думать', 'если не знал (букв. не если знал)',
-                    # Социальные
-                    'давать', 'брать', 'помогать', 'бить', 'целовать', 'шептать', 'хвастаться', 'хвастать, хвалиться', 'жили (вдвоем)',
-                    # Охота
-                    'охотиться', 'ловить', 'стрелять', 'собирать', 'резать', 'шептать, говорить себе по нос', 'хвастать', 'выйди', 'жили', 'танцевать'
-                },
-                'patterns': [
-                    r'дел', r'работ', r'говор', r'слуш',
-                    r'вид', r'смотр', r'дум', r'ход'
-                ]
-            },
-
-            'местоимения': {
-                'exact': {
-                    # Личные местоимения
-                    'я', 'ты', 'он', 'она', 'оно',
-                    'мы', 'вы', 'они', 'ему', 'ей',
-                    
-                    # Возвратное
-                    'себя',
-                    
-                    # Притяжательные
-                    'мой', 'твой', 'его', 'её', 'наш',
-                    'ваш', 'их', 'свой',
-                    
-                    # Указательные
-                    'этот', 'тот', 'такой', 'столько',
-                    'этакий', 'таков', 'сей', 'оный',
-                    
-                    # Определительные
-                    'весь', 'всякий', 'каждый', 'любой',
-                    'сам', 'самый', 'иной', 'другой',
-                    'целый', 'цельный',
-                    
-                    # Вопросительные
-                    'кто', 'что', 'какой', 'который',
-                    'чей', 'сколько',
-                    
-                    # Относительные (те же, что вопросительные)
-                    'кто', 'что', 'какой', 'который',
-                    'чей', 'сколько',
-                    
-                    # Отрицательные
-                    'никто', 'ничто', 'никакой',
-                    'ничей', 'некого', 'нечего',
-                    
-                    # Неопределенные
-                    'некто', 'нечто', 'некоторый',
-                    'некий', 'кое-кто', 'кое-что',
-                    'кто-то', 'что-то', 'какой-то',
-                    'чей-то', 'сколько-то',
-                    'кто-нибудь', 'что-нибудь',
-                    'какой-нибудь', 'чей-нибудь',
-                    'сколько-нибудь',
-                    'кто-либо', 'что-либо',
-                    'какой-либо', 'чей-либо',
-                    'сколько-либо'
-                },
-                'patterns': [
-                    r'\bя\b', r'\bты\b', r'\bон\b', r'\bона\b', r'\bоно\b',
-                    r'\bмы\b', r'\bвы\b', r'\bони\b',
-                    r'\bсеб\w*',  # себя, себе, собою
-                    r'\bм[оё]й\b', r'\bтв[оё]й\b', r'\bсв[оё]й\b',
-                    r'\bнаш\b', r'\bваш\b', r'\bих\b',
-                    r'\bэт\w*', r'\bт\w*',  # этот, тот, такая
-                    r'\bкто\b', r'\bчто\b', r'\bкак\w*', r'\bкото\w*',
-                    r'\bчей\b', r'\bскольк\w*',
-                    r'\bникт\w*', r'\bничт\w*', r'\bникак\w*',
-                    r'\bнект\w*', r'\bнечт\w*', r'\bнекот\w*',
-                    r'\bкое-\w*', r'\b\w+-то\b', r'\b\w+-нибудь\b', r'\b\w+-либо\b'
-                ]
-            },
-                        
-            # Жилище и быт
-            'жилище': {
-                'exact': {
-                    'дом', 'жилище', 'чум', 'шалаш', 'землянка',
-                    'печь', 'костер', 'дверь', 'окно', 'порог',
-                    'посуда', 'котел', 'ковш', 'нож', 'топор',
-                    'одежда', 'обувь', 'шапка', 'пояс', 'игла'
-                },
-                'patterns': [
-                    r'жил', r'дом', r'постр', r'печ',
-                    r'посу', r'одеж', r'обув', r'инструмент'
-                ]
-            },
-
-            'качества и состояния': {
-                'exact': {
-                    # Физические характеристики
-                    'тяжелый', 'легкий', 'большой', 'маленький', 'крепкий', 'хрупкий',
-                    'горячий', 'холодный', 'влажный', 'сухой', 'сильный', 'милый', 'тяжело',
-                    
-                    # Эмоциональные состояния
-                    'радостный', 'грустный', 'страшный', 'смешной',
-                    
-                    # Оценочные характеристики
-                    'хороший', 'плохой', 'красивый', 'уродливый',
-                    
-                    # Сложность
-                    'трудно', 'легко', 'сложно', 'просто',
-                    
-                    # Скорость
-                    'быстро', 'медленно', 'резко', 'плавно'
-                },
-                'patterns': [
-                    r'тяжел', r'лёгк', r'больш', r'маленьк',
-                    r'горяч', r'холодн', r'радост', r'грустн',
-                    r'хорош', r'плох', r'красив', r'уродлив',
-                    r'трудн', r'легк', r'сложн', r'прост',
-                    r'быстр', r'медлен', r'резк', r'плавн'
-                ]
-            },
-            'базовые слова': {
-                'exact': {
-                    # Утверждения и отрицания
-                    'да', 'нет', 'не', 'ни', 'никак', 'нисколько',
-                    
-                    # Вопросительные слова
-                    'кто', 'что', 'какой', 'чей', 'где', 'куда',
-                    'откуда', 'когда', 'зачем', 'почему', 'как',
-                    'сколько', 'насколько', 'отчего',
-                    
-                    # Указательные слова
-                    'вот', 'вон', 'тут', 'там', 'здесь', 'туда',
-                    'сюда', 'оттуда', 'отсюда',
-                    
-                    # Модальные частицы
-                    'ли', 'разве', 'неужели', 'ведь', 'же',
-                    'бы', 'пусть', 'давай', 'давайте',
-                    
-                    # Союзы
-                    'и', 'а', 'но', 'или', 'чтобы', 'потому что',
-                    'если', 'хотя', 'так как'
-                },
-                'patterns': [
-                    # Утверждения/отрицания
-                    r'\bда\b', r'\bнет\b', r'\bне\b', r'\bни\b',
-                    
-                    # Вопросы
-                    r'\bкто\b', r'\bчто\b', r'\bкак\w*', r'\bгде\b',
-                    r'\bкуда\b', r'\bкогда\b', r'\bпочему\b', r'\bзачем\b',
-                    
-                    # Указатели
-                    r'\bвот\b', r'\bвон\b', r'\bтут\b', r'\bтам\b',
-                    
-                    # Частицы
-                    r'\bли\b', r'\bразве\b', r'\bнеужели\b', r'\bведь\b',
-                    
-                    # Союзы
-                    r'\bи\b', r'\bа\b', r'\bно\b', r'\bили\b'
-                ]
-            },
-            # Духовная культура
-            'духовная культура': {
-                'exact': {
-                    'дух', 'бог', 'тотем', 'оберег', 'амулет',
-                    'шаман', 'колдун', 'предсказатель', 'праздник',
-                    'обряд', 'ритуал', 'песня', 'сказка', 'легенда',
-                    'запрет', 'табу', 'обычай', 'традиция'
-                },
-                'patterns': [
-                    r'дух', r'бог', r'шаман', r'обряд',
-                    r'ритуал', r'праздн', r'легенд', r'традиц'
-                ]
-            }
-        }
-
-    def _compile_patterns(self) -> Dict[str, re.Pattern]:
-        """Компиляция regex-паттернов для производительности"""
-        compiled = {}
-        for theme, data in self.theme_data.items():
-            patterns = [re.compile(p) for p in data['patterns']]
-            compiled[theme] = patterns
-        return compiled
-    
-    def detect_theme(self, word: str) -> str:
-        """Определение темы слова с приоритетами"""
-        if not word or not isinstance(word, str):
-            return "Общее"
-            
-        word_clean = word.lower().strip()
-        if not word_clean:
-            return "Общее"
-        
-        word_lemma = get_word_lemma(word_clean)
-        
-        # 1. Проверка точных совпадений
-        for theme, data in self.theme_data.items():
-            if word_clean in data['exact'] or word_lemma in data['exact']:
-                return theme.capitalize()
-        
-        # 2. Проверка по паттернам
-        for theme, patterns in self.compiled_patterns.items():
-            for pattern in patterns:
-                if pattern.search(word_clean) or pattern.search(word_lemma):
-                    return theme.capitalize()
-        
-        # 3. Морфологический анализ для неизвестных слов
-        doc = Doc(word_clean)
-        doc.segment(segmenter)
-        doc.tag_morph(morph_tagger)
-        
-        for token in doc.tokens:
-            if 'NOUN' in token.pos:
-                if 'Animacy=Anim' in token.feats:
-                    return "Животные"
-                return "Природа"
-            elif 'VERB' in token.pos:
-                return "Действия"
-            elif 'ADJ' in token.pos:
-                return "Характеристики"
-        
-        return "Общее"
-
-
-
-
-
-
 async def send_audio_if_exists(chat_id: int, story: dict):
     """Отправляет аудиофайл, если он существует"""
     if story.get('audio') and story['audio'] != "pass":
@@ -1093,7 +1011,7 @@ async def tales_menu_kb(page: int = 0, page_size: int = 5) -> InlineKeyboardMark
     if page > 0:
         navigation_buttons.append(("◀️ Назад", f"{CALLBACK_TALES_PAGE_PREFIX}{page-1}"))
     if end_idx < len(stories):
-        navigation_buttons.append(("Вперед ▶️", f"{CALLBACK_TALES_PAGE_PREFIX}{page+1}"))
+        navigation_buttons.append(("Вперёд ▶️", f"{CALLBACK_TALES_PAGE_PREFIX}{page+1}"))
     return build_menu(
         buttons, 
         back_button=("🗂️ Главное меню", CALLBACK_BACK_TO_MAIN),
@@ -1750,6 +1668,15 @@ async def handle_test_answer(callback: types.CallbackQuery, state: FSMContext):
 
 
 
+
+
+
+
+
+
+
+
+
 # --- Обработчики словаря ---
 @dp.callback_query(F.data == CALLBACK_VOCABULARY)
 async def handle_vocabulary(callback: types.CallbackQuery):
@@ -1814,75 +1741,210 @@ async def handle_grammar(callback: types.CallbackQuery):
         logger.error(f"Неизвестная ошибка в handle_grammar: {e}", exc_info=True)
         await callback.answer("⚠️ Произошла внутренняя ошибка", show_alert=True)
 
-# Добавляем глобальный словарь для хранения тематической лексики
-theme_classifier = ThemeClassifier()
-themes_dict = defaultdict(list)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+async def lexicon_menu_kb(all_themes: list, page: int, page_size: int = 8) -> InlineKeyboardMarkup:
+    """Клавиатура для меню лексики с пагинацией"""
+    start_idx = page * page_size
+    end_idx = start_idx + page_size
+    page_themes = all_themes[start_idx:end_idx]
+    
+    buttons = []
+    for theme in page_themes:
+        buttons.append((theme, f"lexicon_theme_{theme}_{page}"))  # Добавляем номер страницы
+    
+    navigation_buttons = []
+    total_pages = (len(all_themes) + page_size - 1) // page_size
+    
+    if page > 0:
+        navigation_buttons.append(("◀️ Назад", f"lexicon_page_{page-1}"))
+    if end_idx < len(all_themes):
+        navigation_buttons.append(("Вперёд ▶️", f"lexicon_page_{page+1}"))
+    
+    return build_menu(
+        buttons,
+        back_button=("🔙 Назад в словарь", CALLBACK_BACK_TO_VOCABULARY),
+        additional_buttons=navigation_buttons,
+        columns=2
+    )
 
 @dp.callback_query(F.data == CALLBACK_LEXICON)
-async def handle_lexicon(callback: types.CallbackQuery):
-    """Показ лексики, сгруппированной по темам (с проверкой)"""
-    global themes_dict
+async def handle_lexicon_first(callback: types.CallbackQuery, state: FSMContext):
+    """Первый вход в меню лексики — создает новое сообщение"""
     try:
-        themes_dict.clear()
+        themes_dict = defaultdict(list)
         has_lexicon = False
+        stats = {'manual': 0, 'neural': 0}
+
 
         for story in tales_data['stories']:
             if (story.get('han_words') and story.get('rus_words') and
-                len(story['han_words']) > 0 and len(story['rus_words']) > 0):
+                    len(story['han_words']) > 0 and len(story['rus_words']) > 0):
                 has_lexicon = True
                 min_length = min(len(story['han_words']), len(story['rus_words']))
                 for i in range(min_length):
                     han_word = story['han_words'][i].strip()
                     rus_word = story['rus_words'][i].strip()
-                    theme = theme_classifier.detect_theme(rus_word)
-                    themes_dict[theme].append((han_word, rus_word))
+                    
+                    rus_lower = rus_word.lower().strip()
+                    if rus_lower in manual_dictionary:
+                        stats['manual'] += 1
+                    else:
+                        stats['neural'] += 1
+                    
+                    # Используем predict_themes, который возвращает список тем
+                    themes = hybrid_classifier.predict_themes(rus_word)
+                    for theme in themes:
+                        themes_dict[theme].append((han_word, rus_word))
 
         if not has_lexicon:
             await callback.answer("❌ В словаре нет доступной лексики", show_alert=True)
             return
 
-        builder = InlineKeyboardBuilder()
-        for theme in sorted(themes_dict.keys()):
-            builder.button(text=theme, callback_data=f"lexicon_theme_{theme}")
-        builder.button(text="🔙 Назад", callback_data=CALLBACK_BACK_TO_VOCABULARY)
-        builder.adjust(2)
 
-        await callback.message.answer(
-            "📚 Выбери тематику словаря:",
-            reply_markup=builder.as_markup()
+        print(f"Классификация: {stats['manual']} слов из ручного словаря, {stats['neural']} слов нейросетью")
+
+
+        sorted_themes = sorted(themes_dict.keys(),
+                               key=lambda x: len(themes_dict[x]),
+                               reverse=True)
+
+
+        await state.update_data({
+            'themes_dict': dict(themes_dict),
+            'all_themes': sorted_themes,
+            'lexicon_page': 0
+        })
+
+
+        # Отправляем первое сообщение
+        message = await callback.message.answer(
+            "📚 Выбери тематику словаря. Воспользуйся кнопками <b>Вперёд ▶️</b> и <b>◀️ Назад</b> для перехода по меню:",
+            reply_markup=await lexicon_menu_kb(sorted_themes, 0)
         )
+        # Сохраняем message_id, чтобы потом редактировать
+        await state.update_data({'lexicon_message_id': message.message_id})
         await callback.answer()
+        
     except Exception as e:
-        logger.error(f"Ошибка в handle_lexicon: {e}", exc_info=True)
+        logger.error(f"Ошибка в handle_lexicon_first: {e}", exc_info=True)
         await callback.answer("⚠️ Ошибка при загрузке словаря", show_alert=True)
 
 
 @dp.callback_query(F.data.startswith("lexicon_theme_"))
-async def handle_lexicon_theme(callback: types.CallbackQuery):
-    """Показывает слова по выбранной теме"""
-    global themes_dict
-
+async def handle_lexicon_theme(callback: types.CallbackQuery, state: FSMContext):
+    """Показывает слова по выбранной теме в НОВОМ сообщении"""
     try:
-        theme = callback.data.split('_', 2)[2]
+        parts = callback.data.split('_', 2)
+        theme_and_page = parts[2]
+        theme_parts = theme_and_page.rsplit('_', 1)
+        
+        if len(theme_parts) == 2:
+            theme = theme_parts[0]
+            page = int(theme_parts[1])
+        else:
+            theme = theme_and_page
+            page = 0
+        
+        data = await state.get_data()
+        themes_dict = data.get('themes_dict', {})
+        
         if theme not in themes_dict:
             await callback.answer("Тема не найдена", show_alert=True)
             return
 
         words = themes_dict[theme]
         word_list = '\n'.join([f"• <b>{han}</b> — {rus}" for han, rus in words])
-        message = f"📚 <b>{theme}</b>\n{word_list}"
+        
+        message_text = f"📚 <b>{theme}</b> ({len(words)} слов/а)\n\n{word_list}"
 
         builder = InlineKeyboardBuilder()
-        builder.button(text="🔙 Назад", callback_data=CALLBACK_LEXICON)
-
-        await callback.message.answer(
-            message,
-            reply_markup=builder.as_markup()
+        builder.button(text="🔙 Назад к темам", callback_data=f"lexicon_return_to_page_{page}")
+        builder.adjust(1)
+        
+        
+        
+        # Создаем НОВОЕ сообщение для показа слов и сохраняем его ID
+        message = await callback.message.answer(
+            message_text,
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML"
         )
+        await state.update_data({'lexicon_message_id': message.message_id})
+
         await callback.answer()
+
     except Exception as e:
         logger.error(f"Ошибка в handle_lexicon_theme: {e}", exc_info=True)
         await callback.answer("⚠️ Ошибка при загрузке темы", show_alert=True)
+
+@dp.callback_query(F.data.startswith("lexicon_page_"))
+async def handle_lexicon_pagination(callback: types.CallbackQuery, state: FSMContext):
+    """Обработчик пагинации в меню лексики — редактирует существующее сообщение"""
+    try:
+        page = int(callback.data.replace("lexicon_page_", ""))
+        data = await state.get_data()
+        all_themes = data.get('all_themes', [])
+        message_id = data.get('lexicon_message_id')
+        
+        await state.update_data({'lexicon_page': page})
+
+        # Используем message_id, чтобы редактировать сообщение
+        await callback.bot.edit_message_text(
+            chat_id=callback.message.chat.id,
+            message_id=message_id,
+            text="📚 Выбери тематику словаря. Воспользуйся кнопками <b>Вперёд ▶️</b> и <b>◀️ Назад</b> для перехода по меню:",
+            reply_markup=await lexicon_menu_kb(all_themes, page)
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка в handle_lexicon_pagination: {e}")
+        await callback.answer("⚠️ Ошибка при загрузке страницы", show_alert=True)
+
+
+
+
+
+
+@dp.callback_query(F.data.startswith("lexicon_return_to_page_"))
+async def handle_lexicon_return_to_themes(callback: types.CallbackQuery, state: FSMContext):
+    """Возвращает к списку тем, создавая новое сообщение"""
+    try:
+        page = int(callback.data.replace("lexicon_return_to_page_", ""))
+        data = await state.get_data()
+        all_themes = data.get('all_themes', [])
+        
+        # Обновляем страницу в состоянии
+        await state.update_data({'lexicon_page': page})
+        
+        # Создаем НОВОЕ сообщение с темами
+        message = await callback.message.answer(
+            "📚 Выбери тематику словаря. Воспользуйся кнопками <b>Вперёд ▶️</b> и <b>◀️ Назад</b> для перехода по меню:",
+            reply_markup=await lexicon_menu_kb(all_themes, page)
+        )
+        
+        # Сохраняем ID нового сообщения, чтобы потом его можно было редактировать/удалить
+        await state.update_data({'lexicon_message_id': message.message_id})
+
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Ошибка в handle_lexicon_return_to_themes: {e}")
+        await callback.answer("⚠️ Ошибка при возврате к темам", show_alert=True)
+
 
 
 
@@ -2092,6 +2154,13 @@ async def handle_consonants_description(callback: types.CallbackQuery):
 
 
 
+
+
+
+
+
+
+
 # Включаем возможность загрузки усечённых изображений (временное решение)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -2231,7 +2300,7 @@ async def send_illustration_page(message: Message, story: dict, images: list, pa
         if page > 0:
             builder.button(text="◀️ Назад", callback_data=f"illustr_prev_{story['id']}_{page}")
         if page < len(images) - 1:
-            builder.button(text="Вперед ▶️", callback_data=f"illustr_next_{story['id']}_{page}")
+            builder.button(text="Вперёд ▶️", callback_data=f"illustr_next_{story['id']}_{page}")
             
         builder.button(text="🔙 Назад к сказке", callback_data=back_callback)
         builder.adjust(2)
@@ -2412,19 +2481,4 @@ if __name__ == "__main__":
 
 
 
-# версия 14 августа
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# версия 20 августа
