@@ -7,3 +7,4 @@ natasha==1.6.0
 scikit-learn==1.7.1
 setuptools==80.9.0
 torch==2.8.0
+gensim==4.3.3
