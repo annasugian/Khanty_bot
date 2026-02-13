@@ -59,7 +59,7 @@ async def errors_handler(event: types.ErrorEvent):
         event.exception,
         exc_info=True
     )
-    return True # Возвращаем True, чтобы aiogram знал, что ошибка обработана
+    return True
 
 # --- Запуск бота ---
 async def main():
@@ -77,8 +77,7 @@ async def main():
         logger.critical(f"Ошибка при запуске бота: {e}")
     finally:
         logger.info("Бот остановлен")
-        # В aiogram 3.x явное закрытие сессии не требуется, но вы можете добавить:
-        # await bot.session.close()
+
 
 
 if __name__ == "__main__":
