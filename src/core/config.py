@@ -208,24 +208,3 @@ def sort_by_russian_translation(themes_dict: dict) -> dict:
             sorted_themes_dict[theme] = []
     
     return sorted_themes_dict
-
-PHOTO_LICENSES = {
-    0: "Фото: Wikimedia Commons (CC BY-SA 3.0)",
-    1: "Фото: A.Savin, Wikimedia Commons (CC BY-SA 4.0)",
-    2: " ",  
-    3: "Фото: ttelegraf.ru",
-    4: "Фото: Wikimedia Commons (CC BY-SA 3.0)",  
-    5: " ",  
-    6: "Фото: Красная книга ХМАО",
-    7: "Фото: animalzoom.ru",
-    8: "Фото: etosibir.ru",
-    9: "Фото: torummaa.ru",
-    10: "Фото: Яндекс.Фотки",
-    11: "Фото: ugra-tv.ru",
-    12: "Фото: A.Savin, Wikimedia Commons (CC BY-SA 4.0)",  
-    13: "Фото: informugra.ru",
-    15: "Фото: geoglob.ru",
-    16: " ",  
-    17: " ",  
-    18: "Фото: ljplus.ru"
-}
