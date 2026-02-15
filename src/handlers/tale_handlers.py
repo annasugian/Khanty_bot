@@ -17,11 +17,12 @@ from aiogram.exceptions import AiogramError
 from aiogram.types import InputMediaPhoto, InlineKeyboardButton
 import tempfile
 import os
+from aiogram.types import InlineKeyboardMarkup
+
 
 import asyncio
 from aiogram import Router, types, F
 from aiogram.enums import ParseMode
-from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.context import FSMContext
 
 
@@ -36,7 +37,7 @@ from src.core.config import (
     CALLBACK_CONSONANTS_DESCRIPTION, CALLBACK_ALPHABET_LETTERS_LIST,
     CALLBACK_ALPHABET_LETTER_DETAIL, CALLBACK_BACK_TO_VOCABULARY, CALLBACK_LEXICON,
     CALLBACK_TALES_PAGE_PREFIX, CALLBACK_SHOW_ILLUSTRATIONS, CALLBACK_GRAMMAR,
-    tales_data, tests_data, culture_data, phonetics_data, PHOTO_LICENSES, sort_khanty_words_in_themes,
+    tales_data, tests_data, culture_data, phonetics_data, sort_khanty_words_in_themes,
     sort_by_russian_translation
 )
 from src.db.database import Database
@@ -311,176 +312,90 @@ async def handle_illustr_nav(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith(CALLBACK_SHOW_CULTURE))
 async def show_culture_fact(callback: types.CallbackQuery, state: FSMContext):
-    """Показывает культурный факт для сказки с возвратом к исходной версии"""
+    """Показывает культурный факт для сказки"""
     try:
         story_id = int(callback.data.split("_")[-1])
-        
-        # Получаем текущее состояние (из какого языка пришли)
         user_data = await state.get_data()
         lang = user_data.get('last_lang', 'ru')
         
-        culture_fact = next((cf for cf in culture_data if cf.get("id") == story_id and cf.get("fact")), None)
+        culture_fact = next((cf for cf in culture_data 
+                           if cf.get("id") == story_id and cf.get("fact")), None)
         
         if not culture_fact or not culture_fact.get("fact"):
             await callback.answer("⚠️ Культурный факт не найден", show_alert=True)
             return
         
-        # Лицензии для каждого фото
-        photo_licenses = PHOTO_LICENSES
+        fact_text = culture_fact['fact']
+        source_text = f"\n\n🔗 Источник: {culture_fact['source']}" if culture_fact.get("source") else ""
+        full_caption = f"🌿 <b>Культура</b>\n\n{fact_text}{source_text}"
         
-        # Формируем базовое сообщение
-        base_caption = f"🌿 <b>Культура</b>\n\n{culture_fact['fact']}"
-        
-        # Добавляем информацию о лицензии фото
-        if culture_fact.get("photo") and story_id in photo_licenses:
-            base_caption += f"\n\n📷 {photo_licenses[story_id]}"
-        
-        # Добавляем источник факта
-        if culture_fact.get("source") and culture_fact["source"].strip():
-            source_text = f"\n\n🔗 Источник: {culture_fact['source']}"
-        else:
-            source_text = ""
-        
-        # Проверяем длину текста
-        full_caption = base_caption + source_text
-        
-        # Создаем кнопку возврата в зависимости от языка
         back_callback = f"{CALLBACK_LANGUAGE_RU}{story_id}" if lang == 'ru' else f"{CALLBACK_LANGUAGE_KH}{story_id}"
-        
         kb = InlineKeyboardBuilder()
         kb.button(text="🔙 Назад к сказке", callback_data=back_callback)
         kb.button(text="🗂️ Главное меню", callback_data=CALLBACK_BACK_TO_MAIN)
         kb.adjust(2)
         
-        # Если есть фото
-        if culture_fact.get("photo") and culture_fact["photo"].startswith(("http://", "https://")):
-            try:
-                # Добавляем заголовки для обхода блокировки
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'image/webp,image/*,*/*;q=0.8',
-                    'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
-                }
-                
-                async with aiohttp.ClientSession(headers=headers) as session:
-                    async with session.get(culture_fact["photo"], timeout=10) as response:
-                        if response.status == 200:
-                            # Создаем временный файл
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
-                                tmp_file.write(await response.read())
-                                tmp_path = tmp_file.name
-                            
-                            try:
-                                # Проверяем длину подписи (лимит Telegram - 1024 символа)
-                                if len(full_caption) <= 1024:
-                                    # Отправляем фото с полной подписью
-                                    photo = types.FSInputFile(tmp_path)
-                                    await callback.message.answer_photo(
-                                        photo=photo,
-                                        caption=full_caption,
-                                        reply_markup=kb.as_markup(),
-                                        parse_mode=ParseMode.HTML
-                                    )
-                                else:
-                                    # Если текст слишком длинный:
-                                    # 1. Отправляем фото с короткой подписью
-                                    short_caption = "🌿 <b>Культура</b>"
-                                    if culture_fact.get("photo") and story_id in photo_licenses:
-                                        short_caption += f"\n\n📷 {photo_licenses[story_id]}"
-                                    
-                                    photo = types.FSInputFile(tmp_path)
-                                    await callback.message.answer_photo(
-                                        photo=photo,
-                                        caption=short_caption,
-                                        parse_mode=ParseMode.HTML
-                                    )
-                                    
-                                    # 2. Отправляем полный текст отдельным сообщением с кнопками
-                                    text_message = f"🌿 <b>Культура</b>\n\n{culture_fact['fact']}"
-                                    if source_text:
-                                        text_message += source_text
-                                    
-                                    await callback.message.answer(
-                                        text_message,
-                                        reply_markup=kb.as_markup(),
-                                        parse_mode=ParseMode.HTML
-                                    )
-                                    
-                            finally:
-                                # Удаляем временный файл
-                                if os.path.exists(tmp_path):
-                                    os.unlink(tmp_path)
-                        else:
-                            raise Exception(f"HTTP {response.status}")
-                            
-            except Exception as e:
-                logger.error(f"Не удалось скачать/отправить фото (ID {story_id}): {e}")
-                # Отправляем только текст
-                text_message = f"🌿 <b>Культура</b>\n\n{culture_fact['fact']}"
-                if culture_fact.get("photo") and story_id in photo_licenses:
-                    text_message += f"\n\n📷 {photo_licenses[story_id]}"
-                if source_text:
-                    text_message += source_text
-                
-                text_message += f"\n\n🖼️ Фото: {culture_fact['photo']}"
-                
-                await callback.message.answer(
-                    text_message,
-                    reply_markup=kb.as_markup(),
-                    parse_mode=ParseMode.HTML,
-                    disable_web_page_preview=False
-                )
-        
-        elif culture_fact.get("photo"):  # Локальный файл
-            try:
-                # Проверяем длину текста для локальных фото
-                if len(full_caption) <= 1024:
-                    photo = types.FSInputFile(culture_fact["photo"])
-                    await callback.message.answer_photo(
-                        photo=photo,
-                        caption=full_caption,
-                        reply_markup=kb.as_markup(),
-                        parse_mode=ParseMode.HTML
-                    )
-                else:
-                    # Отдельно фото и текст
-                    photo = types.FSInputFile(culture_fact["photo"])
-                    await callback.message.answer_photo(
-                        photo=photo,
-                        caption="🌿 Культурный факт",
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-                    # Полный текст с кнопками
-                    text_message = f"🌿 <b>Культура</b>\n\n{culture_fact['fact']}"
-                    if source_text:
-                        text_message += source_text
-                    
-                    await callback.message.answer(
-                        text_message,
-                        reply_markup=kb.as_markup(),
-                        parse_mode=ParseMode.HTML
-                    )
-                    
-            except Exception as e:
-                logger.error(f"Не удалось отправить локальное фото (ID {story_id}): {e}")
-                await callback.message.answer(
-                    full_caption,
-                    reply_markup=kb.as_markup(),
-                    parse_mode=ParseMode.HTML
-                )
-        
-        else:  # Нет фото
-            await callback.message.answer(
-                full_caption,
-                reply_markup=kb.as_markup(),
-                parse_mode=ParseMode.HTML
-            )
-            
+        await send_culture_content(callback.message, culture_fact, full_caption, kb.as_markup())
         await callback.answer()
     except Exception as e:
         logger.error(f"Ошибка показа культурного факта: {e}", exc_info=True)
-        await callback.answer("⚠️ Произошла ошибка при загрузке факта", show_alert=True)
+        await callback.answer("⚠️ Произошла ошибка", show_alert=True)
+
+
+async def send_culture_content(message: types.Message, culture_fact: dict, full_caption: str, reply_markup):
+    """Универсальная отправка культурного факта"""
+    photo_path = culture_fact.get("photo")
+    
+    if not photo_path:
+        await safe_send_message(message, full_caption, reply_markup)
+        return
+    
+    try:
+        if photo_path.startswith(("http://", "https://")):
+            photo_path = await download_photo(photo_path)
+        
+        if len(full_caption) <= 1024:
+            photo = types.FSInputFile(photo_path)
+            await message.answer_photo(photo=photo, caption=full_caption, 
+                                     reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+        else:
+            short_caption = "🌿 <b>Культура</b>"
+            photo = types.FSInputFile(photo_path)
+            await message.answer_photo(photo=photo, caption=short_caption, 
+                                     parse_mode=ParseMode.HTML)
+            await safe_send_message(message, full_caption, reply_markup)
+            
+    except Exception as e:
+        logger.error(f"Ошибка отправки фото: {e}")
+        await safe_send_message(message, full_caption, reply_markup)
+    
+    finally:
+        if photo_path and os.path.exists(photo_path) and not photo_path.startswith(('http', '/')):
+            try:
+                os.unlink(photo_path)
+            except:
+                pass
+
+
+async def download_photo(url: str) -> str:
+    """Скачивает фото из URL"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(url, timeout=10) as response:
+            if response.status != 200:
+                raise Exception(f"HTTP {response.status}")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_file:
+                tmp_file.write(await response.read())
+                return tmp_file.name
+
+
+async def safe_send_message(message: types.Message, text: str, reply_markup):
+    """Отправляет текстовое сообщение"""
+    await message.answer(text, reply_markup=reply_markup, parse_mode=ParseMode.HTML, 
+                        disable_web_page_preview=False)
+
+
+
 
 
 # --- Обработчики тестов ---
@@ -590,7 +505,7 @@ async def handle_test_answer(
             # Ответ верный с первого раза - засчитываем полный балл
             test_score += 1
             # Показываем сообщение с пояснением
-            await callback.message.answer(f"✅ Верно!\n{explanation}")
+            await callback.message.answer(f"✅ {explanation}")
         else:
             # Ответ верный, но после ошибки - засчитываем 0.5 балла
             test_score += 0.5
