@@ -1000,7 +1000,7 @@ async def handle_show_lexicon_theme(callback: types.CallbackQuery, state: FSMCon
 
 # --- Обработчики алфавита ---
 
-VOWELS = {'А', 'Ă', 'И', 'Й', 'О', 'Ө', 'У', 'Ў', 'Ы', 'Э', 'Є', 'Ә'}
+VOWELS = {'А', 'Ă', 'И', 'О', 'Ө', 'У', 'Ў', 'Ы', 'Э', 'Є', 'Ә', 'а', 'ӑ', 'и', 'о', 'ө', 'у', 'ў', 'ы', 'э', 'є', 'ә'}
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 PHONETICS_DIR = BASE_DIR / 'phonetics' # Папка для звуков алфавита
 
