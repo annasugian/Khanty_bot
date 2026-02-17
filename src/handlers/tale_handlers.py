@@ -1079,8 +1079,9 @@ async def handle_alphabet_vowels(callback: types.CallbackQuery):
                 buttons.append((letter_char, callback_data))
         
         # Сортируем по порядку гласных
-        buttons.sort(key=lambda x: sorted(VOWELS).index(x[0].upper()) if x[0].upper() in VOWELS else len(VOWELS))
-        
+        VOWELS = ['А', 'Ă', 'И', 'О', 'Ө', 'У', 'Ў', 'Ы', 'Э', 'Є', 'Ә', 'а', 'ӑ', 'и', 'о', 'ө', 'у', 'ў', 'ы', 'э', 'є', 'ә']
+        buttons.sort(key=lambda x: VOWELS_ORDER.index(x[0]))
+     
         builder = InlineKeyboardBuilder()
 
         # Гласные — 4 в строке
