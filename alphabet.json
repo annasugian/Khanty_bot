@@ -6,7 +6,7 @@
     },
     {
         "name": "Буква \"А с галочкой\"",
-        "photo": "alfabeto/letras/Ӑ.png",
+        "photo": "alfabeto/letras/Ă.png",
         "sound": "alfabeto/audio/Буква_Ӑ.mp3"
     },
     {
@@ -145,3 +145,4 @@
         "sound": "alfabeto/audio/Буква_ә.mp3"
     }
 ]
+
