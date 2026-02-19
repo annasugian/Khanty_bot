@@ -194,6 +194,20 @@ async def alphabet_menu_kb() -> InlineKeyboardMarkup:
 
 
 
+
+
+async def lexicon_menu_kb(all_themes: List[str], page: int = 0, page_size: int = 6) -> InlineKeyboardMarkup:
+    """ЗАГЛУШКА: Лексика в разработке"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🚧 Лексика в разработке", callback_data="lexicon_wip")
+    builder.button(text="🔙 Назад в словарь", callback_data=CALLBACK_BACK_TO_VOCABULARY)
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+
+
+'''
 async def lexicon_menu_kb(all_themes: List[str], page: int = 0, page_size: int = 6) -> InlineKeyboardMarkup:
     """Меню лексики с пагинацией по темам"""
     
@@ -223,6 +237,8 @@ async def lexicon_menu_kb(all_themes: List[str], page: int = 0, page_size: int =
         columns=2
     )
 
+'''
+
 async def get_alphabet_buttons(vowels_only: bool = False, consonants_only: bool = False) -> List[Tuple[str, str]]:
     """Вспомогательная функция для получения кнопок алфавита"""
     try:
@@ -231,7 +247,7 @@ async def get_alphabet_buttons(vowels_only: bool = False, consonants_only: bool 
             alphabet_data = json.load(f)
         
         buttons = []
-        VOWELS = {'А', 'Ӑ', 'И', 'Й', 'О', 'Ө', 'У', 'Ў', 'Ы', 'Э', 'Є', 'Ә'}
+        VOWELS = {'А', 'Ӑ', 'И', 'О', 'Ө', 'У', 'Ў', 'Ы', 'Э', 'Є', 'Ә'}
         
         for letter in alphabet_data:
             letter_char = Path(letter['photo']).stem.upper()
